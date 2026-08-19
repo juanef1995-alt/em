@@ -146,7 +146,13 @@
   .scan-hint { font-size: .82rem; color: var(--muted); margin-top: 8px; text-align: center; }
   .scan-focus-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-right: 5px; }
   .scan-focus-dot.off { background: #c9ccd6; }
-  #printFrame { position: absolute; left: -9999px; width: 1px; height: 1px; border: 0; }
+  #printArea { display: none; }
+  @media print {
+    body > *:not(#printArea) { display: none !important; }
+    #printArea { display: block !important; }
+    #printArea canvas { display: block; page-break-after: always; }
+    #printArea canvas:last-child { page-break-after: auto; }
+  }
 </style>
 </head>
 <body>
@@ -241,7 +247,8 @@
 
 </main>
 
-<iframe id="printFrame" title="Impresión de etiqueta"></iframe>
+<div id="printArea"></div>
+<style id="printPageSizeStyle"></style>
 
 <footer>Todo el procesamiento ocurre en tu navegador — el PDF no se sube a ningún servidor.</footer>
 
@@ -277,10 +284,12 @@ const scanMsg = document.getElementById("scanMsg");
 const scanLogBody = document.getElementById("scanLogBody");
 const scanFocusDot = document.getElementById("scanFocusDot");
 const scanFocusText = document.getElementById("scanFocusText");
-const printFrame = document.getElementById("printFrame");
+const printArea = document.getElementById("printArea");
+const printPageSizeStyle = document.getElementById("printPageSizeStyle");
 
 let originalBytes = null;   // ArrayBuffer of the loaded PDF
 let originalFileName = "etiquetas";
+let pdfjsDoc = null;        // pdf.js document, kept around to render pages to canvas for printing
 // Map: nic -> { pages: [0-based page indices in first-seen order], destino, sucursal, bultos, fecha }
 let labelsByNic = new Map();
 let nicFirstSeenOrder = [];
@@ -323,7 +332,8 @@ async function handleFile(file) {
   originalBytes = await file.arrayBuffer();
 
   try {
-    const parsed = await parsePdf(originalBytes.slice(0));
+    pdfjsDoc = await pdfjsLib.getDocument({ data: originalBytes.slice(0) }).promise;
+    const parsed = await parsePdf(pdfjsDoc);
     labelsByNic = parsed.labelsByNic;
     nicFirstSeenOrder = parsed.order;
     renderDetected();
@@ -343,8 +353,7 @@ async function handleFile(file) {
   }
 }
 
-async function parsePdf(bytes) {
-  const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+async function parsePdf(doc) {
   const labelsByNic = new Map();
   const order = [];
 
@@ -540,26 +549,40 @@ function beep(freq, duration) {
   } catch (e) { /* audio not available, ignore */ }
 }
 
-let printFrameUrl = null;
-function printBytesAsSingleDoc(bytes) {
-  return new Promise((resolve, reject) => {
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const previousUrl = printFrameUrl;
-    printFrameUrl = url;
-    printFrame.onload = () => {
-      try {
-        printFrame.contentWindow.focus();
-        printFrame.contentWindow.print();
-        resolve();
-      } catch (err) {
-        reject(err);
-      } finally {
-        if (previousUrl) URL.revokeObjectURL(previousUrl);
-      }
-    };
-    printFrame.src = url;
-  });
+// Renders one PDF page to an offscreen canvas at print resolution, and returns
+// its physical size in inches (from the unscaled viewport) so the printed
+// output matches the original label size exactly.
+async function renderPageToCanvas(pageIndex, scale) {
+  const page = await pdfjsDoc.getPage(pageIndex + 1); // pdf.js pages are 1-based
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+  const baseViewport = page.getViewport({ scale: 1 });
+  return { canvas, widthIn: baseViewport.width / 72, heightIn: baseViewport.height / 72 };
+}
+
+// Prints the given source pages directly from this document (no iframe / new
+// window), avoiding the cross-origin restriction Chrome applies to a blob PDF
+// embedded in a frame when the app itself is opened via file://.
+async function printPagesDirectly(pageIndices) {
+  const PRINT_SCALE = 3; // higher = crisper output, at the cost of render time
+  printArea.innerHTML = "";
+  let pageSizeCss = "";
+
+  for (let i = 0; i < pageIndices.length; i++) {
+    const { canvas, widthIn, heightIn } = await renderPageToCanvas(pageIndices[i], PRINT_SCALE);
+    canvas.style.width = widthIn + "in";
+    canvas.style.height = heightIn + "in";
+    if (i === 0) pageSizeCss = "@page { size: " + widthIn.toFixed(3) + "in " + heightIn.toFixed(3) + "in; margin: 0; }";
+    printArea.appendChild(canvas);
+  }
+
+  printPageSizeStyle.textContent = pageSizeCss;
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  window.print();
 }
 
 function addScanLogRow(nic, info, ok) {
@@ -594,8 +617,7 @@ async function handleScan(rawNic) {
   const pages = applyCopiesOverride(info.pages, override);
 
   try {
-    const bytes = await buildPdfBytesForPages(pages);
-    await printBytesAsSingleDoc(bytes);
+    await printPagesDirectly(pages);
     beep(880, 120);
     scanMsg.innerHTML = "<div class='msg ok'>Enviado a imprimir: " + escapeHtml(nic) + " — " + escapeHtml(info.destino || "") + "</div>";
     addScanLogRow(nic, info, true);
