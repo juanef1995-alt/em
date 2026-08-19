@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ordenador de Etiquetas por NIC</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%231e3fa8'/%3E%3Ctext x='50' y='66' font-size='52' font-family='Arial, sans-serif' font-weight='bold' fill='white' text-anchor='middle'%3ENIC%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    --blue: #1e3fa8;
+    --blue-dark: #142c78;
+    --bg: #f4f6fb;
+    --card: #ffffff;
+    --border: #dde3ef;
+    --text: #1a2333;
+    --muted: #6b7488;
+    --danger: #c62828;
+    --danger-bg: #fdecea;
+    --ok: #1e7e34;
+    --ok-bg: #e9f7ef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+    color: #fff;
+    padding: 20px 24px;
+  }
+  header h1 { margin: 0 0 4px; font-size: 1.35rem; }
+  header p { margin: 0; opacity: .85; font-size: .92rem; }
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 2px rgba(20, 30, 60, .04);
+  }
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--blue);
+    color: #fff;
+    font-size: .8rem;
+    font-weight: 700;
+    flex: none;
+  }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 26px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop.dragover { border-color: var(--blue); background: #eef2ff; }
+  .drop strong { color: var(--blue); }
+  input[type=file] { display: none; }
+  .file-info {
+    margin-top: 10px;
+    font-size: .88rem;
+    color: var(--muted);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .02em; }
+  tr:last-child td { border-bottom: none; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 20px; background: #eef1fa; font-weight: 600; font-size: .8rem; }
+  .muted { color: var(--muted); }
+  textarea {
+    width: 100%;
+    min-height: 140px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .95rem;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: .92rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:disabled { background: #a9b4d6; cursor: not-allowed; }
+  .btn-secondary { background: #eef1fa; color: var(--blue-dark); }
+  select, input[type=number] {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: .9rem;
+  }
+  label.opt { font-size: .88rem; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .msg { border-radius: 8px; padding: 10px 12px; font-size: .88rem; margin-top: 10px; }
+  .msg.err { background: var(--danger-bg); color: var(--danger); }
+  .msg.ok { background: var(--ok-bg); color: var(--ok); }
+  .hidden { display: none; }
+  .badge-count { color: var(--muted); font-weight: 400; font-size: .85rem; }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 10px; }
+  code { background: #eef1fa; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Ordenador de Etiquetas por NIC</h1>
+  <p>Subí el PDF de etiquetas de viaje y elegí en qué orden querés imprimirlas.</p>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2><span class="step-num">1</span> Cargar el PDF de etiquetas</h2>
+    <div id="drop" class="drop">
+      <div>Arrastrá el PDF acá o <strong>hacé clic para elegir el archivo</strong></div>
+      <div class="file-info" id="fileInfo">Ningún archivo cargado todavía.</div>
+    </div>
+    <input type="file" id="fileInput" accept="application/pdf" />
+  </section>
+
+  <section class="card hidden" id="detectedCard">
+    <h2><span class="step-num">2</span> Etiquetas detectadas <span class="badge-count" id="detectedCount"></span></h2>
+    <div style="max-height: 260px; overflow: auto;">
+      <table>
+        <thead>
+          <tr><th>NIC</th><th>Destino</th><th>Sucursal</th><th>Bultos</th><th>Fecha</th><th>Copias</th></tr>
+        </thead>
+        <tbody id="detectedBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card hidden" id="orderCard">
+    <h2><span class="step-num">3</span> Orden de impresión</h2>
+    <p class="muted" style="margin-top:-4px;">
+      Escribí o pegá los NIC en el orden en que querés que salgan las etiquetas
+      (uno por línea, o separados por coma/espacio). Podés repetir un NIC si necesitás reimprimirlo.
+    </p>
+    <textarea id="nicOrder" placeholder="Ej:&#10;1331260&#10;1330793&#10;1330644"></textarea>
+    <div class="row">
+      <button class="btn-secondary" id="useAllBtn">Usar todos, en el orden del PDF</button>
+      <button class="btn-secondary" id="clearBtn">Vaciar</button>
+      <label class="opt" style="margin-left:auto;">
+        Copias por etiqueta:
+        <select id="copiesMode">
+          <option value="auto" selected>Como en el PDF original</option>
+          <option value="1">1 copia</option>
+          <option value="2">2 copias</option>
+          <option value="custom">Otra cantidad…</option>
+        </select>
+      </label>
+      <input type="number" id="copiesCustom" min="1" max="10" value="1" class="hidden" style="width:70px;" />
+    </div>
+    <div id="orderMsg"></div>
+  </section>
+
+  <section class="card hidden" id="generateCard">
+    <h2><span class="step-num">4</span> Generar e imprimir</h2>
+    <div class="row">
+      <button class="btn-primary" id="generateBtn" disabled>Generar PDF ordenado</button>
+      <span class="muted" id="generateSummary"></span>
+    </div>
+    <div id="generateMsg"></div>
+  </section>
+
+</main>
+
+<footer>Todo el procesamiento ocurre en tu navegador — el PDF no se sube a ningún servidor.</footer>
+
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script>
+const { PDFDocument } = PDFLib;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+
+const dropEl = document.getElementById("drop");
+const fileInput = document.getElementById("fileInput");
+const fileInfo = document.getElementById("fileInfo");
+const detectedCard = document.getElementById("detectedCard");
+const detectedBody = document.getElementById("detectedBody");
+const detectedCount = document.getElementById("detectedCount");
+const orderCard = document.getElementById("orderCard");
+const nicOrder = document.getElementById("nicOrder");
+const useAllBtn = document.getElementById("useAllBtn");
+const clearBtn = document.getElementById("clearBtn");
+const copiesMode = document.getElementById("copiesMode");
+const copiesCustom = document.getElementById("copiesCustom");
+const orderMsg = document.getElementById("orderMsg");
+const generateCard = document.getElementById("generateCard");
+const generateBtn = document.getElementById("generateBtn");
+const generateSummary = document.getElementById("generateSummary");
+const generateMsg = document.getElementById("generateMsg");
+
+let originalBytes = null;   // ArrayBuffer of the loaded PDF
+let originalFileName = "etiquetas";
+// Map: nic -> { pages: [0-based page indices in first-seen order], destino, sucursal, bultos, fecha }
+let labelsByNic = new Map();
+let nicFirstSeenOrder = [];
+
+dropEl.addEventListener("click", () => fileInput.click());
+dropEl.addEventListener("dragover", (e) => { e.preventDefault(); dropEl.classList.add("dragover"); });
+dropEl.addEventListener("dragleave", () => dropEl.classList.remove("dragover"));
+dropEl.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropEl.classList.remove("dragover");
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+copiesMode.addEventListener("change", () => {
+  copiesCustom.classList.toggle("hidden", copiesMode.value !== "custom");
+  updateSummary();
+});
+copiesCustom.addEventListener("input", updateSummary);
+nicOrder.addEventListener("input", updateSummary);
+
+useAllBtn.addEventListener("click", () => {
+  nicOrder.value = nicFirstSeenOrder.join("\n");
+  updateSummary();
+});
+clearBtn.addEventListener("click", () => {
+  nicOrder.value = "";
+  updateSummary();
+});
+
+async function handleFile(file) {
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    fileInfo.textContent = "El archivo debe ser un PDF.";
+    return;
+  }
+  originalFileName = file.name.replace(/\.pdf$/i, "");
+  fileInfo.textContent = "Leyendo " + file.name + "…";
+  originalBytes = await file.arrayBuffer();
+
+  try {
+    const parsed = await parsePdf(originalBytes.slice(0));
+    labelsByNic = parsed.labelsByNic;
+    nicFirstSeenOrder = parsed.order;
+    renderDetected();
+    fileInfo.textContent = file.name + " — " + parsed.order.length + " etiqueta(s) distinta(s) en " + parsed.totalPages + " página(s).";
+    detectedCard.classList.remove("hidden");
+    orderCard.classList.remove("hidden");
+    generateCard.classList.remove("hidden");
+    nicOrder.value = nicFirstSeenOrder.join("\n");
+    updateSummary();
+  } catch (err) {
+    console.error(err);
+    fileInfo.textContent = "No se pudo leer el PDF: " + err.message;
+  }
+}
+
+async function parsePdf(bytes) {
+  const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const labelsByNic = new Map();
+  const order = [];
+
+  for (let i = 0; i < doc.numPages; i++) {
+    const page = await doc.getPage(i + 1);
+    const content = await page.getTextContent();
+    const items = content.items.map((it) => it.str);
+
+    const info = extractLabelInfo(items);
+    if (!info.nic) continue;
+
+    if (!labelsByNic.has(info.nic)) {
+      labelsByNic.set(info.nic, { pages: [], destino: info.destino, sucursal: info.sucursal, bultos: info.bultos, fecha: info.fecha });
+      order.push(info.nic);
+    }
+    labelsByNic.get(info.nic).pages.push(i);
+  }
+
+  return { labelsByNic, order, totalPages: doc.numPages };
+}
+
+function extractLabelInfo(items) {
+  let nic = null, destino = null, sucursal = null, bultos = null, fecha = null;
+
+  for (let i = 0; i < items.length; i++) {
+    const s = items[i].trim();
+    if (!s) continue;
+
+    if (s.startsWith("Destino:") && !destino) {
+      destino = s.replace(/^Destino:\s*/, "");
+    } else if (s.startsWith("Sucursal:") && !sucursal) {
+      sucursal = s.replace(/^Sucursal:\s*/, "");
+    } else if (s.startsWith("Fecha:")) {
+      fecha = s.replace(/^Fecha:\s*/, "");
+      // the tracking number (NIC) is the next non-blank text item after the date
+      for (let j = i + 1; j < items.length; j++) {
+        const cand = items[j].trim();
+        if (!cand) continue;
+        if (/^\d{4,12}$/.test(cand)) nic = cand;
+        break;
+      }
+    } else if (s === "BULTOS") {
+      for (let j = i + 1; j < items.length; j++) {
+        const cand = items[j].trim();
+        if (!cand) continue;
+        if (/^\d+$/.test(cand)) bultos = cand;
+        break;
+      }
+    }
+  }
+  return { nic, destino, sucursal, bultos, fecha };
+}
+
+function renderDetected() {
+  detectedBody.innerHTML = "";
+  for (const nic of nicFirstSeenOrder) {
+    const info = labelsByNic.get(nic);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><span class='tag'>" + escapeHtml(nic) + "</span></td>" +
+      "<td>" + escapeHtml(info.destino || "-") + "</td>" +
+      "<td>" + escapeHtml(info.sucursal || "-") + "</td>" +
+      "<td>" + escapeHtml(info.bultos || "-") + "</td>" +
+      "<td class='muted'>" + escapeHtml(info.fecha || "-") + "</td>" +
+      "<td>" + info.pages.length + "</td>";
+    detectedBody.appendChild(tr);
+  }
+  detectedCount.textContent = "(" + nicFirstSeenOrder.length + ")";
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function parseNicList(raw) {
+  return raw
+    .split(/[\s,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function getCopiesOverride() {
+  if (copiesMode.value === "auto") return null;
+  if (copiesMode.value === "custom") {
+    const n = parseInt(copiesCustom.value, 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }
+  return parseInt(copiesMode.value, 10);
+}
+
+function updateSummary() {
+  const requested = parseNicList(nicOrder.value);
+  const found = [];
+  const missing = [];
+  for (const nic of requested) {
+    if (labelsByNic.has(nic)) found.push(nic);
+    else missing.push(nic);
+  }
+
+  const override = getCopiesOverride();
+  let totalPages = 0;
+  for (const nic of found) {
+    totalPages += override != null ? override : labelsByNic.get(nic).pages.length;
+  }
+
+  if (missing.length) {
+    const uniqueMissing = [...new Set(missing)];
+    orderMsg.innerHTML = "<div class='msg err'>NIC no encontrados en el PDF: " + uniqueMissing.map(escapeHtml).join(", ") + "</div>";
+  } else {
+    orderMsg.innerHTML = "";
+  }
+
+  generateSummary.textContent = found.length
+    ? found.length + " etiqueta(s) a imprimir, " + totalPages + " página(s) en total."
+    : "Escribí al menos un NIC válido para generar el PDF.";
+
+  generateBtn.disabled = found.length === 0 || !originalBytes;
+}
+
+generateBtn.addEventListener("click", async () => {
+  generateMsg.innerHTML = "";
+  const requested = parseNicList(nicOrder.value);
+  const found = requested.filter((nic) => labelsByNic.has(nic));
+  if (!found.length || !originalBytes) return;
+
+  generateBtn.disabled = true;
+  generateBtn.textContent = "Generando…";
+
+  try {
+    const override = getCopiesOverride();
+    const srcDoc = await PDFDocument.load(originalBytes.slice(0));
+    const outDoc = await PDFDocument.create();
+
+    // Figure out, per requested NIC, which source page indices to copy (respecting the copies setting).
+    const pageIndicesToCopy = [];
+    const perNicPageIndices = [];
+    for (const nic of found) {
+      const info = labelsByNic.get(nic);
+      let pages = info.pages;
+      if (override != null) {
+        if (override <= pages.length) {
+          pages = pages.slice(0, override);
+        } else {
+          // repeat the last known page to reach the requested copy count
+          const extra = new Array(override - pages.length).fill(pages[pages.length - 1]);
+          pages = pages.concat(extra);
+        }
+      }
+      perNicPageIndices.push(pages);
+      pageIndicesToCopy.push(...pages);
+    }
+
+    const copied = await outDoc.copyPages(srcDoc, pageIndicesToCopy);
+    for (const p of copied) outDoc.addPage(p);
+
+    const outBytes = await outDoc.save();
+    const blob = new Blob([outBytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = originalFileName + "_ordenado.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    // Also open a tab for quick print preview.
+    window.open(url, "_blank");
+
+    generateMsg.innerHTML = "<div class='msg ok'>PDF generado con " + pageIndicesToCopy.length + " página(s). Se descargó y se abrió en una pestaña nueva para imprimir.</div>";
+  } catch (err) {
+    console.error(err);
+    generateMsg.innerHTML = "<div class='msg err'>Error al generar el PDF: " + escapeHtml(err.message) + "</div>";
+  } finally {
+    generateBtn.disabled = false;
+    generateBtn.textContent = "Generar PDF ordenado";
+  }
+});
+</script>
+
+</body>
+</html>
