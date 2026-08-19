@@ -126,6 +126,27 @@
   .badge-count { color: var(--muted); font-weight: 400; font-size: .85rem; }
   footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 10px; }
   code { background: #eef1fa; padding: 1px 5px; border-radius: 4px; }
+  .scan-box {
+    border: 2px solid var(--blue);
+    border-radius: 10px;
+    padding: 16px;
+    background: #f7f9ff;
+    cursor: text;
+  }
+  .scan-box input {
+    width: 100%;
+    font-size: 1.4rem;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-align: center;
+    letter-spacing: .04em;
+  }
+  .scan-box input:focus { outline: 2px solid var(--blue); }
+  .scan-hint { font-size: .82rem; color: var(--muted); margin-top: 8px; text-align: center; }
+  .scan-focus-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-right: 5px; }
+  .scan-focus-dot.off { background: #c9ccd6; }
+  #printFrame { position: absolute; left: -9999px; width: 1px; height: 1px; border: 0; }
 </style>
 </head>
 <body>
@@ -183,7 +204,7 @@
   </section>
 
   <section class="card hidden" id="generateCard">
-    <h2><span class="step-num">4</span> Generar e imprimir</h2>
+    <h2><span class="step-num">4</span> Generar e imprimir (lote)</h2>
     <div class="row">
       <button class="btn-primary" id="generateBtn" disabled>Generar PDF ordenado</button>
       <span class="muted" id="generateSummary"></span>
@@ -191,7 +212,36 @@
     <div id="generateMsg"></div>
   </section>
 
+  <section class="card hidden" id="scanCard">
+    <h2><span class="step-num">5</span> Escaneo rápido <span class="badge-count">(imprime una etiqueta por vez al escanear el NIC)</span></h2>
+    <div class="row" style="margin-top:0;">
+      <label class="opt">
+        Copias por escaneo:
+        <select id="scanCopiesMode">
+          <option value="1" selected>1 copia</option>
+          <option value="2">2 copias</option>
+          <option value="auto">Como en el PDF original</option>
+        </select>
+      </label>
+    </div>
+    <div class="scan-box" id="scanBox">
+      <input type="text" id="scanInput" placeholder="Escaneá el código de barras o escribí el NIC y Enter" autocomplete="off" />
+      <div class="scan-hint"><span class="scan-focus-dot off" id="scanFocusDot"></span><span id="scanFocusText">Hacé clic acá para activar el escaneo</span></div>
+    </div>
+    <div id="scanMsg"></div>
+    <div style="max-height: 240px; overflow: auto; margin-top: 12px;">
+      <table>
+        <thead>
+          <tr><th>Hora</th><th>NIC</th><th>Destino</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody id="scanLogBody"></tbody>
+      </table>
+    </div>
+  </section>
+
 </main>
+
+<iframe id="printFrame" title="Impresión de etiqueta"></iframe>
 
 <footer>Todo el procesamiento ocurre en tu navegador — el PDF no se sube a ningún servidor.</footer>
 
@@ -219,6 +269,15 @@ const generateCard = document.getElementById("generateCard");
 const generateBtn = document.getElementById("generateBtn");
 const generateSummary = document.getElementById("generateSummary");
 const generateMsg = document.getElementById("generateMsg");
+const scanCard = document.getElementById("scanCard");
+const scanBox = document.getElementById("scanBox");
+const scanInput = document.getElementById("scanInput");
+const scanCopiesMode = document.getElementById("scanCopiesMode");
+const scanMsg = document.getElementById("scanMsg");
+const scanLogBody = document.getElementById("scanLogBody");
+const scanFocusDot = document.getElementById("scanFocusDot");
+const scanFocusText = document.getElementById("scanFocusText");
+const printFrame = document.getElementById("printFrame");
 
 let originalBytes = null;   // ArrayBuffer of the loaded PDF
 let originalFileName = "etiquetas";
@@ -272,8 +331,12 @@ async function handleFile(file) {
     detectedCard.classList.remove("hidden");
     orderCard.classList.remove("hidden");
     generateCard.classList.remove("hidden");
+    scanCard.classList.remove("hidden");
     nicOrder.value = nicFirstSeenOrder.join("\n");
     updateSummary();
+    scanInput.value = "";
+    scanInput.disabled = false;
+    scanInput.focus();
   } catch (err) {
     console.error(err);
     fileInfo.textContent = "No se pudo leer el PDF: " + err.message;
@@ -403,6 +466,23 @@ function updateSummary() {
   generateBtn.disabled = found.length === 0 || !originalBytes;
 }
 
+// Applies a copies override to one label's page list: trims to `override` pages,
+// or repeats the last known page to reach `override` copies if there aren't enough.
+function applyCopiesOverride(pages, override) {
+  if (override == null) return pages;
+  if (override <= pages.length) return pages.slice(0, override);
+  const extra = new Array(override - pages.length).fill(pages[pages.length - 1]);
+  return pages.concat(extra);
+}
+
+async function buildPdfBytesForPages(pageIndices) {
+  const srcDoc = await PDFDocument.load(originalBytes.slice(0));
+  const outDoc = await PDFDocument.create();
+  const copied = await outDoc.copyPages(srcDoc, pageIndices);
+  for (const p of copied) outDoc.addPage(p);
+  return outDoc.save();
+}
+
 generateBtn.addEventListener("click", async () => {
   generateMsg.innerHTML = "";
   const requested = parseNicList(nicOrder.value);
@@ -414,32 +494,12 @@ generateBtn.addEventListener("click", async () => {
 
   try {
     const override = getCopiesOverride();
-    const srcDoc = await PDFDocument.load(originalBytes.slice(0));
-    const outDoc = await PDFDocument.create();
-
-    // Figure out, per requested NIC, which source page indices to copy (respecting the copies setting).
     const pageIndicesToCopy = [];
-    const perNicPageIndices = [];
     for (const nic of found) {
-      const info = labelsByNic.get(nic);
-      let pages = info.pages;
-      if (override != null) {
-        if (override <= pages.length) {
-          pages = pages.slice(0, override);
-        } else {
-          // repeat the last known page to reach the requested copy count
-          const extra = new Array(override - pages.length).fill(pages[pages.length - 1]);
-          pages = pages.concat(extra);
-        }
-      }
-      perNicPageIndices.push(pages);
-      pageIndicesToCopy.push(...pages);
+      pageIndicesToCopy.push(...applyCopiesOverride(labelsByNic.get(nic).pages, override));
     }
 
-    const copied = await outDoc.copyPages(srcDoc, pageIndicesToCopy);
-    for (const p of copied) outDoc.addPage(p);
-
-    const outBytes = await outDoc.save();
+    const outBytes = await buildPdfBytesForPages(pageIndicesToCopy);
     const blob = new Blob([outBytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
 
@@ -461,6 +521,115 @@ generateBtn.addEventListener("click", async () => {
     generateBtn.disabled = false;
     generateBtn.textContent = "Generar PDF ordenado";
   }
+});
+
+// --- Escaneo rápido: imprime una sola etiqueta por cada NIC escaneado ---
+
+function beep(freq, duration) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration / 1000);
+    osc.onended = () => ctx.close();
+  } catch (e) { /* audio not available, ignore */ }
+}
+
+let printFrameUrl = null;
+function printBytesAsSingleDoc(bytes) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const previousUrl = printFrameUrl;
+    printFrameUrl = url;
+    printFrame.onload = () => {
+      try {
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        if (previousUrl) URL.revokeObjectURL(previousUrl);
+      }
+    };
+    printFrame.src = url;
+  });
+}
+
+function addScanLogRow(nic, info, ok) {
+  const tr = document.createElement("tr");
+  const time = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const statusHtml = ok
+    ? "<span style='color:var(--ok); font-weight:600;'>Impreso</span>"
+    : "<span style='color:var(--danger); font-weight:600;'>No encontrado</span>";
+  const reprintBtn = ok ? "<button class='btn-secondary reprint-btn' data-nic='" + escapeHtml(nic) + "'>Reimprimir</button>" : "";
+  tr.innerHTML =
+    "<td class='muted'>" + time + "</td>" +
+    "<td><span class='tag'>" + escapeHtml(nic) + "</span></td>" +
+    "<td>" + escapeHtml(info ? (info.destino || "-") : "-") + "</td>" +
+    "<td>" + statusHtml + "</td>" +
+    "<td>" + reprintBtn + "</td>";
+  scanLogBody.prepend(tr);
+}
+
+async function handleScan(rawNic) {
+  const nic = rawNic.trim();
+  if (!nic) return;
+
+  if (!labelsByNic.has(nic)) {
+    beep(220, 300);
+    scanMsg.innerHTML = "<div class='msg err'>NIC no encontrado: " + escapeHtml(nic) + "</div>";
+    addScanLogRow(nic, null, false);
+    return;
+  }
+
+  const info = labelsByNic.get(nic);
+  const override = getScanCopiesOverride();
+  const pages = applyCopiesOverride(info.pages, override);
+
+  try {
+    const bytes = await buildPdfBytesForPages(pages);
+    await printBytesAsSingleDoc(bytes);
+    beep(880, 120);
+    scanMsg.innerHTML = "<div class='msg ok'>Enviado a imprimir: " + escapeHtml(nic) + " — " + escapeHtml(info.destino || "") + "</div>";
+    addScanLogRow(nic, info, true);
+  } catch (err) {
+    console.error(err);
+    scanMsg.innerHTML = "<div class='msg err'>Error al imprimir " + escapeHtml(nic) + ": " + escapeHtml(err.message) + "</div>";
+  }
+}
+
+function getScanCopiesOverride() {
+  const v = scanCopiesMode.value;
+  return v === "auto" ? null : parseInt(v, 10);
+}
+
+scanInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const value = scanInput.value;
+    scanInput.value = "";
+    handleScan(value);
+  }
+});
+scanInput.addEventListener("focus", () => {
+  scanFocusDot.classList.remove("off");
+  scanFocusText.textContent = "Listo para escanear";
+});
+scanInput.addEventListener("blur", () => {
+  scanFocusDot.classList.add("off");
+  scanFocusText.textContent = "Hacé clic acá para activar el escaneo";
+});
+scanBox.addEventListener("click", () => scanInput.focus());
+scanLogBody.addEventListener("click", (e) => {
+  const btn = e.target.closest(".reprint-btn");
+  if (btn) handleScan(btn.dataset.nic);
 });
 </script>
 

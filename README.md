@@ -30,6 +30,57 @@ corre 100% en el navegador. El PDF nunca se sube a ningún servidor.
    archivo `<nombre-original>_ordenado.pdf` y se abre en una pestaña nueva
    para imprimir directamente.
 
+## Escaneo rápido (imprimir de a una etiqueta con un lector de código de barras)
+
+Además del modo por lote de arriba, la sección **"5. Escaneo rápido"**
+permite imprimir una sola etiqueta por vez a medida que vas escaneando el NIC
+de cada bulto físico:
+
+1. Con el PDF ya cargado, hacé clic dentro del recuadro de escaneo (queda
+   marcado "Listo para escanear").
+2. Escaneá el código de barras del bulto (o escribí el NIC a mano) y
+   apretá Enter. Un lector de código de barras común (USB o Bluetooth,
+   tipo "pistola") funciona como si fuera un teclado: escribe el número y
+   Enter solo, así que no hace falta nada especial de configuración.
+3. La app arma al instante el PDF de esa sola etiqueta y abre el diálogo de
+   impresión de Windows/Mac. Confirmás con Enter o un clic en "Imprimir" y
+   sale la etiqueta.
+4. Si el NIC no está en el PDF cargado, la app avisa en rojo y hace un sonido
+   distinto, sin mandar nada a imprimir.
+5. Cada escaneo queda anotado en la tabla de abajo (hora, NIC, destino,
+   estado), con un botón **"Reimprimir"** por si una etiqueta se atascó o
+   salió mal.
+
+Por defecto imprime 1 copia por escaneo; podés cambiarlo con el selector
+"Copias por escaneo" arriba del recuadro.
+
+**Antes de usarlo la primera vez en una PC:**
+
+- Configurá la impresora de etiquetas (Zebra) como **impresora
+  predeterminada** de Windows/Mac, así el diálogo de impresión ya viene con
+  ella seleccionada.
+- La primera vez que imprimas, revisá que el diálogo tenga el tamaño de
+  papel/etiqueta correcto y la escala en **"Tamaño real" / "100%"** (no
+  "Ajustar a la página"), y guardá esa configuración — el navegador la
+  recuerda para las próximas impresiones.
+
+### Modo 100% automático (sin tocar nada al escanear)
+
+Si más adelante querés que ni siquiera haya que confirmar el diálogo de
+impresión, se puede lograr abriendo la app con Chrome/Edge en **modo
+kiosco de impresión**, que manda el trabajo directo a la impresora
+predeterminada sin mostrar ningún diálogo. En Windows, se hace con un
+acceso directo que ejecute:
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing "C:\ruta\a\index.html"
+```
+
+(ajustando la ruta al `index.html` de esta carpeta). Con eso, cada escaneo
+imprime solo, sin ningún clic. Es un cambio que conviene hacer solo en la PC
+fija que vaya a estar al lado de la impresora, ya que ese acceso directo
+imprime automáticamente cualquier cosa que la página mande a imprimir.
+
 ## Estructura
 
 - `index.html` — la aplicación completa (HTML + CSS + JS).
