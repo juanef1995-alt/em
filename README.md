@@ -66,20 +66,23 @@ Por defecto imprime 1 copia por escaneo; podés cambiarlo con el selector
 
 ### Modo 100% automático (sin tocar nada al escanear)
 
-Si más adelante querés que ni siquiera haya que confirmar el diálogo de
-impresión, se puede lograr abriendo la app con Chrome/Edge en **modo
-kiosco de impresión**, que manda el trabajo directo a la impresora
-predeterminada sin mostrar ningún diálogo. En Windows, se hace con un
-acceso directo que ejecute:
+Si querés que ni siquiera haya que confirmar el diálogo de impresión, usá el
+archivo **`Abrir en modo automatico.bat`** que está en esta misma carpeta:
 
-```
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing "C:\ruta\a\index.html"
-```
+1. Primero, poné la impresora Zebra como **predeterminada** en Windows
+   (Configuración → Impresoras y escáneres → elegirla → "Establecer como
+   predeterminada"; si aparece "Dejar que Windows administre mi impresora
+   predeterminada", apagalo para que no la cambie sola).
+2. De ahora en más, abrí la app haciendo **doble clic en
+   `Abrir en modo automatico.bat`** en vez de en `index.html`. Se abre
+   Chrome en modo silencioso: cada etiqueta que la app mande a imprimir sale
+   directo a la impresora predeterminada, sin ningún diálogo ni clic.
+3. El `.bat` busca Chrome solo (no hace falta editar rutas a mano). Si no lo
+   encuentra, te va a avisar que instales Google Chrome.
 
-(ajustando la ruta al `index.html` de esta carpeta). Con eso, cada escaneo
-imprime solo, sin ningún clic. Es un cambio que conviene hacer solo en la PC
-fija que vaya a estar al lado de la impresora, ya que ese acceso directo
-imprime automáticamente cualquier cosa que la página mande a imprimir.
+Usalo solo en la PC fija que esté al lado de la impresora, ya que en ese modo
+cualquier cosa que la página mande a imprimir sale directo, sin
+confirmación.
 
 ## Estructura
 
