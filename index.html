@@ -146,6 +146,17 @@
   .scan-hint { font-size: .82rem; color: var(--muted); margin-top: 8px; text-align: center; }
   .scan-focus-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-right: 5px; }
   .scan-focus-dot.off { background: #c9ccd6; }
+  .tabs { display: flex; gap: 8px; padding: 0 16px; max-width: 980px; margin: 14px auto -4px; }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    padding: 8px 4px;
+  }
+  .tab-btn.active { color: var(--blue-dark); border-bottom-color: var(--blue); }
+  .config-steps { margin: 0; padding-left: 20px; }
+  .config-steps li { margin-bottom: 8px; }
   #printArea { display: none; }
   @media print {
     body > *:not(#printArea) { display: none !important; }
@@ -162,7 +173,12 @@
   <p>Subí el PDF de etiquetas de viaje y elegí en qué orden querés imprimirlas.</p>
 </header>
 
-<main>
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtnLabels">Etiquetas</button>
+  <button class="tab-btn" id="tabBtnConfig">Configuración</button>
+</div>
+
+<main id="tabLabels">
 
   <section class="card">
     <h2><span class="step-num">1</span> Cargar el PDF de etiquetas</h2>
@@ -247,6 +263,40 @@
 
 </main>
 
+<main id="tabConfig" class="hidden">
+
+  <section class="card">
+    <h2>Configuración de la impresora</h2>
+    <p class="muted" style="margin-top:-4px;">
+      La app siempre imprime a través de la <strong>impresora predeterminada de
+      Windows/Mac</strong> — no elige la impresora desde acá, así que hay que
+      dejarla configurada una sola vez en el sistema operativo.
+    </p>
+    <ol class="config-steps">
+      <li>Apretá la tecla Windows y escribí <strong>"Impresoras y escáneres"</strong> → Enter.</li>
+      <li>Buscá tu impresora Zebra en la lista y hacé clic en ella.</li>
+      <li>Si aparece <strong>"Dejar que Windows administre mi impresora predeterminada"</strong>, apagalo (para que no la cambie sola).</li>
+      <li>Hacé clic en la Zebra → <strong>"Administrar"</strong> → <strong>"Establecer como predeterminada"</strong>.</li>
+      <li>En "Administrar" → "Preferencias de impresión", revisá que el tamaño de papel/etiqueta configurado sea el de tu rollo (10x10cm / 4x4in aprox.).</li>
+      <li>Para que imprima <strong>sola, sin ningún cartel</strong> al escanear, abrí la app con doble clic en <strong>"Abrir en modo automatico.bat"</strong> (está en la misma carpeta que <code>index.html</code>) en vez de abrir <code>index.html</code> directamente.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Impresión de prueba</h2>
+    <p class="muted" style="margin-top:-4px;">
+      Mandá una etiqueta de prueba para confirmar que la impresora predeterminada,
+      el tamaño y el modo automático (si lo estás usando) funcionan bien, sin
+      necesidad de tener un PDF real cargado.
+    </p>
+    <div class="row" style="margin-top:0;">
+      <button class="btn-primary" id="testPrintBtn">Imprimir etiqueta de prueba</button>
+    </div>
+    <div id="testPrintMsg"></div>
+  </section>
+
+</main>
+
 <div id="printArea"></div>
 <style id="printPageSizeStyle"></style>
 
@@ -286,6 +336,21 @@ const scanFocusDot = document.getElementById("scanFocusDot");
 const scanFocusText = document.getElementById("scanFocusText");
 const printArea = document.getElementById("printArea");
 const printPageSizeStyle = document.getElementById("printPageSizeStyle");
+const tabBtnLabels = document.getElementById("tabBtnLabels");
+const tabBtnConfig = document.getElementById("tabBtnConfig");
+const tabLabels = document.getElementById("tabLabels");
+const tabConfig = document.getElementById("tabConfig");
+const testPrintBtn = document.getElementById("testPrintBtn");
+const testPrintMsg = document.getElementById("testPrintMsg");
+
+tabBtnLabels.addEventListener("click", () => switchTab("labels"));
+tabBtnConfig.addEventListener("click", () => switchTab("config"));
+function switchTab(tab) {
+  tabBtnLabels.classList.toggle("active", tab === "labels");
+  tabBtnConfig.classList.toggle("active", tab === "config");
+  tabLabels.classList.toggle("hidden", tab !== "labels");
+  tabConfig.classList.toggle("hidden", tab !== "config");
+}
 
 let originalBytes = null;   // ArrayBuffer of the loaded PDF
 let originalFileName = "etiquetas";
@@ -564,26 +629,75 @@ async function renderPageToCanvas(pageIndex, scale) {
   return { canvas, widthIn: baseViewport.width / 72, heightIn: baseViewport.height / 72 };
 }
 
-// Prints the given source pages directly from this document (no iframe / new
-// window), avoiding the cross-origin restriction Chrome applies to a blob PDF
-// embedded in a frame when the app itself is opened via file://.
-async function printPagesDirectly(pageIndices) {
-  const PRINT_SCALE = 3; // higher = crisper output, at the cost of render time
+// Drops the given canvases into the on-page print-only container, sized to
+// their real physical dimensions, and prints the top-level document itself
+// (no iframe / new window) — avoiding the cross-origin restriction Chrome
+// applies to a blob PDF embedded in a frame when the app is opened via
+// file://.
+async function printCanvasesDirectly(canvases, widthIn, heightIn) {
   printArea.innerHTML = "";
-  let pageSizeCss = "";
-
-  for (let i = 0; i < pageIndices.length; i++) {
-    const { canvas, widthIn, heightIn } = await renderPageToCanvas(pageIndices[i], PRINT_SCALE);
+  for (const canvas of canvases) {
     canvas.style.width = widthIn + "in";
     canvas.style.height = heightIn + "in";
-    if (i === 0) pageSizeCss = "@page { size: " + widthIn.toFixed(3) + "in " + heightIn.toFixed(3) + "in; margin: 0; }";
     printArea.appendChild(canvas);
   }
-
-  printPageSizeStyle.textContent = pageSizeCss;
+  printPageSizeStyle.textContent = "@page { size: " + widthIn.toFixed(3) + "in " + heightIn.toFixed(3) + "in; margin: 0; }";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   window.print();
 }
+
+async function printPagesDirectly(pageIndices) {
+  const PRINT_SCALE = 3; // higher = crisper output, at the cost of render time
+  const canvases = [];
+  let widthIn = 4, heightIn = 4;
+  for (let i = 0; i < pageIndices.length; i++) {
+    const rendered = await renderPageToCanvas(pageIndices[i], PRINT_SCALE);
+    if (i === 0) { widthIn = rendered.widthIn; heightIn = rendered.heightIn; }
+    canvases.push(rendered.canvas);
+  }
+  await printCanvasesDirectly(canvases, widthIn, heightIn);
+}
+
+// Builds a self-contained test label (no PDF needed) to verify the default
+// printer, label size and the silent-print (.bat) setup all work together.
+function buildTestLabelCanvas() {
+  const widthIn = 4, heightIn = 4, dpi = 200;
+  const canvas = document.createElement("canvas");
+  canvas.width = widthIn * dpi;
+  canvas.height = heightIn * dpi;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#1a2333";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(14, 14, canvas.width - 28, canvas.height - 28);
+
+  ctx.fillStyle = "#1a2333";
+  ctx.textAlign = "center";
+  ctx.font = "bold " + Math.round(dpi * 0.2) + "px Arial";
+  ctx.fillText("PRUEBA DE", canvas.width / 2, canvas.height * 0.36);
+  ctx.fillText("IMPRESIÓN", canvas.width / 2, canvas.height * 0.5);
+  ctx.font = Math.round(dpi * 0.09) + "px Arial";
+  ctx.fillText("Si esto salió con el tamaño y la impresora", canvas.width / 2, canvas.height * 0.64);
+  ctx.fillText("correctos, ya está todo listo.", canvas.width / 2, canvas.height * 0.7);
+  ctx.font = Math.round(dpi * 0.07) + "px Arial";
+  ctx.fillText(new Date().toLocaleString("es-AR"), canvas.width / 2, canvas.height * 0.85);
+
+  return { canvas, widthIn, heightIn };
+}
+
+testPrintBtn.addEventListener("click", async () => {
+  testPrintMsg.innerHTML = "";
+  try {
+    const { canvas, widthIn, heightIn } = buildTestLabelCanvas();
+    await printCanvasesDirectly([canvas], widthIn, heightIn);
+    testPrintMsg.innerHTML = "<div class='msg ok'>Etiqueta de prueba enviada a imprimir.</div>";
+  } catch (err) {
+    console.error(err);
+    testPrintMsg.innerHTML = "<div class='msg err'>Error al imprimir la prueba: " + escapeHtml(err.message) + "</div>";
+  }
+});
 
 function addScanLogRow(nic, info, ok) {
   const tr = document.createElement("tr");
