@@ -36,18 +36,26 @@ Además del modo por lote de arriba, la sección **"5. Escaneo rápido"**
 permite imprimir una sola etiqueta por vez a medida que vas escaneando el NIC
 de cada bulto físico:
 
-1. Con el PDF ya cargado, hacé clic dentro del recuadro de escaneo (queda
-   marcado "Listo para escanear").
-2. Escaneá el código de barras del bulto (o escribí el NIC a mano) y
+1. Apenas cargás el PDF, la app empieza a preparar en segundo plano el
+   dibujo de cada etiqueta (se ve un cartel "Preparando etiquetas para
+   impresión rápida… X/Y" debajo del recuadro de escaneo). Conviene esperar
+   a que termine antes de arrancar a escanear fuerte, así cada etiqueta sale
+   al instante en vez de tener que dibujarse en el momento. Si escaneás
+   antes de que termine, igual funciona — esa etiqueta puntual tarda un
+   toque más la primera vez.
+2. Hacé clic dentro del recuadro de escaneo (queda marcado "Listo para
+   escanear").
+3. Escaneá el código de barras del bulto (o escribí el NIC a mano) y
    apretá Enter. Un lector de código de barras común (USB o Bluetooth,
    tipo "pistola") funciona como si fuera un teclado: escribe el número y
    Enter solo, así que no hace falta nada especial de configuración.
-3. La app arma al instante el PDF de esa sola etiqueta y abre el diálogo de
-   impresión de Windows/Mac. Confirmás con Enter o un clic en "Imprimir" y
-   sale la etiqueta.
-4. Si el NIC no está en el PDF cargado, la app avisa en rojo y hace un sonido
+4. La app manda esa etiqueta a imprimir al instante. Si estás usando
+   `Abrir en modo automatico.bat`, sale directo sin ningún cartel; si
+   abriste `index.html` normal, se abre el diálogo de impresión de Windows
+   y confirmás con Enter o un clic en "Imprimir".
+5. Si el NIC no está en el PDF cargado, la app avisa en rojo y hace un sonido
    distinto, sin mandar nada a imprimir.
-5. Cada escaneo queda anotado en la tabla de abajo (hora, NIC, destino,
+6. Cada escaneo queda anotado en la tabla de abajo (hora, NIC, destino,
    estado), con un botón **"Reimprimir"** por si una etiqueta se atascó o
    salió mal.
 

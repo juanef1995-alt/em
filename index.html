@@ -250,6 +250,7 @@
       <input type="text" id="scanInput" placeholder="Escaneá el código de barras o escribí el NIC y Enter" autocomplete="off" />
       <div class="scan-hint"><span class="scan-focus-dot off" id="scanFocusDot"></span><span id="scanFocusText">Hacé clic acá para activar el escaneo</span></div>
     </div>
+    <p class="muted" id="prewarmStatus" style="font-size:.82rem; margin: 8px 0 0;"></p>
     <div id="scanMsg"></div>
     <div style="max-height: 240px; overflow: auto; margin-top: 12px;">
       <table>
@@ -331,6 +332,7 @@ const scanBox = document.getElementById("scanBox");
 const scanInput = document.getElementById("scanInput");
 const scanCopiesMode = document.getElementById("scanCopiesMode");
 const scanMsg = document.getElementById("scanMsg");
+const prewarmStatus = document.getElementById("prewarmStatus");
 const scanLogBody = document.getElementById("scanLogBody");
 const scanFocusDot = document.getElementById("scanFocusDot");
 const scanFocusText = document.getElementById("scanFocusText");
@@ -358,6 +360,8 @@ let pdfjsDoc = null;        // pdf.js document, kept around to render pages to c
 // Map: nic -> { pages: [0-based page indices in first-seen order], destino, sucursal, bultos, fecha }
 let labelsByNic = new Map();
 let nicFirstSeenOrder = [];
+let pageCanvasCache = new Map(); // pageIndex -> { canvas, widthIn, heightIn }, pre-rendered for fast scan-to-print
+let prewarmToken = 0;            // bumped on each new file load, so a stale prewarm loop stops itself
 
 dropEl.addEventListener("click", () => fileInput.click());
 dropEl.addEventListener("dragover", (e) => { e.preventDefault(); dropEl.classList.add("dragover"); });
@@ -412,6 +416,10 @@ async function handleFile(file) {
     scanInput.value = "";
     scanInput.disabled = false;
     scanInput.focus();
+
+    pageCanvasCache = new Map();
+    const allPageIndices = [...new Set(nicFirstSeenOrder.flatMap((nic) => labelsByNic.get(nic).pages))];
+    prewarmPageCache(allPageIndices);
   } catch (err) {
     console.error(err);
     fileInfo.textContent = "No se pudo leer el PDF: " + err.message;
@@ -599,18 +607,22 @@ generateBtn.addEventListener("click", async () => {
 
 // --- Escaneo rápido: imprime una sola etiqueta por cada NIC escaneado ---
 
+const PRINT_SCALE = 3; // higher = crisper output, at the cost of render time
+
+// A single, reused AudioContext (creating one from scratch on every beep adds
+// noticeable overhead to the scan-to-print latency).
+let audioCtx = null;
 function beep(freq, duration) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(audioCtx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + duration / 1000);
-    osc.onended = () => ctx.close();
+    osc.stop(audioCtx.currentTime + duration / 1000);
   } catch (e) { /* audio not available, ignore */ }
 }
 
@@ -627,6 +639,47 @@ async function renderPageToCanvas(pageIndex, scale) {
 
   const baseViewport = page.getViewport({ scale: 1 });
   return { canvas, widthIn: baseViewport.width / 72, heightIn: baseViewport.height / 72 };
+}
+
+// Returns the pre-rendered canvas for a page, rendering (and caching) it on
+// the spot if it isn't ready yet — e.g. a scan comes in before the
+// background prewarm gets to that page.
+async function getPageCanvas(pageIndex) {
+  if (!pageCanvasCache.has(pageIndex)) {
+    const promise = renderPageToCanvas(pageIndex, PRINT_SCALE);
+    promise.catch(() => pageCanvasCache.delete(pageIndex)); // let a later call retry instead of failing forever
+    pageCanvasCache.set(pageIndex, promise);
+  }
+  return pageCanvasCache.get(pageIndex);
+}
+
+// Renders every label page in the background right after a PDF loads, so
+// each scan afterwards only has to look up an already-drawn canvas instead
+// of rasterizing the page from scratch. Yields between pages to keep the UI
+// (and the scan input) responsive while it runs.
+async function prewarmPageCache(pageIndices) {
+  const myToken = ++prewarmToken;
+  let done = 0;
+  for (const pageIndex of pageIndices) {
+    if (myToken !== prewarmToken) return; // a newer PDF was loaded meanwhile
+    await getPageCanvas(pageIndex);
+    done++;
+    prewarmStatus.textContent = "Preparando etiquetas para impresión rápida… " + done + "/" + pageIndices.length;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (myToken === prewarmToken) prewarmStatus.textContent = "";
+}
+
+// Copies a cached canvas's pixels into a fresh one — needed when the same
+// page is printed more than once in a single job (e.g. 2 copies), since a
+// <canvas> element (and its drawn bitmap) can only be attached to the page
+// in one place at a time.
+function cloneCanvas(source) {
+  const copy = document.createElement("canvas");
+  copy.width = source.width;
+  copy.height = source.height;
+  copy.getContext("2d").drawImage(source, 0, 0);
+  return copy;
 }
 
 // Drops the given canvases into the on-page print-only container, sized to
@@ -647,13 +700,16 @@ async function printCanvasesDirectly(canvases, widthIn, heightIn) {
 }
 
 async function printPagesDirectly(pageIndices) {
-  const PRINT_SCALE = 3; // higher = crisper output, at the cost of render time
   const canvases = [];
+  const alreadyUsed = new Set();
   let widthIn = 4, heightIn = 4;
   for (let i = 0; i < pageIndices.length; i++) {
-    const rendered = await renderPageToCanvas(pageIndices[i], PRINT_SCALE);
+    const rendered = await getPageCanvas(pageIndices[i]);
     if (i === 0) { widthIn = rendered.widthIn; heightIn = rendered.heightIn; }
-    canvases.push(rendered.canvas);
+    // The first use of a given page can print straight from the cached
+    // canvas; a repeat (e.g. a second copy of the same label) needs its own copy.
+    canvases.push(alreadyUsed.has(pageIndices[i]) ? cloneCanvas(rendered.canvas) : rendered.canvas);
+    alreadyUsed.add(pageIndices[i]);
   }
   await printCanvasesDirectly(canvases, widthIn, heightIn);
 }
