@@ -57,7 +57,7 @@ Por defecto imprime 1 copia por escaneo; podés cambiarlo con el selector
 **Antes de usarlo la primera vez en una PC:**
 
 - Configurá la impresora de etiquetas (Zebra) como **impresora
-  predeterminada** de Windows/Mac, así el diálogo de impresión ya viene con
+  predeterminada** de Windows, así el diálogo de impresión ya viene con
   ella seleccionada.
 - La primera vez que imprimas, revisá que el diálogo tenga el tamaño de
   papel/etiqueta correcto y la escala en **"Tamaño real" / "100%"** (no
@@ -77,8 +77,9 @@ archivo **`Abrir en modo automatico.bat`** que está en esta misma carpeta:
    `Abrir en modo automatico.bat`** en vez de en `index.html`. Se abre
    Chrome en modo silencioso: cada etiqueta que la app mande a imprimir sale
    directo a la impresora predeterminada, sin ningún diálogo ni clic.
-3. El `.bat` busca Chrome solo (no hace falta editar rutas a mano). Si no lo
-   encuentra, te va a avisar que instales Google Chrome.
+3. El `.bat` busca Chrome solo (no hace falta editar rutas a mano) y lo abre
+   con un perfil separado, así funciona aunque ya tengas otra ventana de
+   Chrome normal abierta.
 
 Usalo solo en la PC fija que esté al lado de la impresora, ya que en ese modo
 cualquier cosa que la página mande a imprimir sale directo, sin
