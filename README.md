@@ -13,9 +13,17 @@ corre 100% en el navegador. El PDF nunca se sube a ningún servidor.
 1. Abrí `index.html` con doble clic (o servilo con cualquier servidor
    estático, por ejemplo `python3 -m http.server` y entrá a
    `http://localhost:8000`).
-2. Cargá el PDF de etiquetas (arrastrándolo o haciendo clic para elegirlo).
-   La app detecta automáticamente cada etiqueta y su NIC, mostrando destino,
-   sucursal, bultos y fecha en una tabla.
+2. Cargá uno o más PDF de etiquetas (arrastrándolos juntos, o eligiendo
+   varios en el diálogo de archivos). También podés ir agregando más PDF
+   después, sin perder los que ya cargaste — por ejemplo, para juntar en una
+   misma sesión de escaneo los listados de viaje de varios días. Cada
+   archivo cargado aparece en una lista con la cantidad de etiquetas que
+   trae y un botón **"Quitar"** para sacarlo (y "Vaciar todo" para arrancar
+   de cero). La app detecta automáticamente cada etiqueta y su NIC en todos
+   los PDF cargados, mostrando destino, sucursal, bultos, fecha y de qué
+   archivo salió cada una en una sola tabla. Si el mismo NIC aparece en más
+   de un PDF, se queda con la primera copia cargada y avisa cuántas
+   repeticiones ignoró.
 3. En el cuadro de texto escribí o pegá los NIC en el orden en que querés
    imprimirlos (uno por línea, o separados por coma/espacio). El botón
    "Usar todos, en el orden del PDF" precarga la lista completa tal cual

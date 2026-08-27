@@ -181,12 +181,13 @@
 <main id="tabLabels">
 
   <section class="card">
-    <h2><span class="step-num">1</span> Cargar el PDF de etiquetas</h2>
+    <h2><span class="step-num">1</span> Cargar el/los PDF de etiquetas</h2>
     <div id="drop" class="drop">
-      <div>Arrastrá el PDF acá o <strong>hacé clic para elegir el archivo</strong></div>
+      <div>Arrastrá uno o más PDF acá o <strong>hacé clic para elegir los archivos</strong></div>
       <div class="file-info" id="fileInfo">Ningún archivo cargado todavía.</div>
     </div>
-    <input type="file" id="fileInput" accept="application/pdf" />
+    <input type="file" id="fileInput" accept="application/pdf" multiple />
+    <div id="loadedFilesList"></div>
   </section>
 
   <section class="card hidden" id="detectedCard">
@@ -194,7 +195,7 @@
     <div style="max-height: 260px; overflow: auto;">
       <table>
         <thead>
-          <tr><th>NIC</th><th>Destino</th><th>Sucursal</th><th>Bultos</th><th>Fecha</th><th>Copias</th></tr>
+          <tr><th>NIC</th><th>Destino</th><th>Sucursal</th><th>Bultos</th><th>Fecha</th><th>Copias</th><th>Origen</th></tr>
         </thead>
         <tbody id="detectedBody"></tbody>
       </table>
@@ -344,6 +345,7 @@ const tabLabels = document.getElementById("tabLabels");
 const tabConfig = document.getElementById("tabConfig");
 const testPrintBtn = document.getElementById("testPrintBtn");
 const testPrintMsg = document.getElementById("testPrintMsg");
+const loadedFilesList = document.getElementById("loadedFilesList");
 
 tabBtnLabels.addEventListener("click", () => switchTab("labels"));
 tabBtnConfig.addEventListener("click", () => switchTab("config"));
@@ -354,14 +356,14 @@ function switchTab(tab) {
   tabConfig.classList.toggle("hidden", tab !== "config");
 }
 
-let originalBytes = null;   // ArrayBuffer of the loaded PDF
-let originalFileName = "etiquetas";
-let pdfjsDoc = null;        // pdf.js document, kept around to render pages to canvas for printing
-// Map: nic -> { pages: [0-based page indices in first-seen order], destino, sucursal, bultos, fecha }
+// Map: docId -> { fileName, bytes (ArrayBuffer), pdfjsDoc, labelCount, duplicateCount, totalPages }
+let loadedPdfs = new Map();
+let nextDocId = 0;
+// Map: nic -> { pages: [{docId, pageIndex}], destino, sucursal, bultos, fecha, fileName }
 let labelsByNic = new Map();
 let nicFirstSeenOrder = [];
-let pageCanvasCache = new Map(); // pageIndex -> { canvas, widthIn, heightIn }, pre-rendered for fast scan-to-print
-let prewarmToken = 0;            // bumped on each new file load, so a stale prewarm loop stops itself
+let pageCanvasCache = new Map(); // `${docId}:${pageIndex}` -> { canvas, widthIn, heightIn }, pre-rendered for fast scan-to-print
+let prewarmToken = 0;            // bumped whenever loaded files change, so a stale prewarm loop stops itself
 
 dropEl.addEventListener("click", () => fileInput.click());
 dropEl.addEventListener("dragover", (e) => { e.preventDefault(); dropEl.classList.add("dragover"); });
@@ -369,10 +371,16 @@ dropEl.addEventListener("dragleave", () => dropEl.classList.remove("dragover"));
 dropEl.addEventListener("drop", (e) => {
   e.preventDefault();
   dropEl.classList.remove("dragover");
-  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
 });
 fileInput.addEventListener("change", () => {
-  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  if (fileInput.files.length) handleFiles(fileInput.files);
+  fileInput.value = ""; // allow re-selecting the same file(s) later
+});
+loadedFilesList.addEventListener("click", (e) => {
+  const removeBtn = e.target.closest(".remove-file-btn");
+  if (removeBtn) { removeFile(parseInt(removeBtn.dataset.docid, 10)); return; }
+  if (e.target.id === "clearAllFilesBtn") clearAllFiles();
 });
 
 copiesMode.addEventListener("change", () => {
@@ -391,39 +399,149 @@ clearBtn.addEventListener("click", () => {
   updateSummary();
 });
 
-async function handleFile(file) {
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+async function handleFiles(fileList) {
+  const files = Array.from(fileList).filter(
+    (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
+  );
+  if (!files.length) {
     fileInfo.textContent = "El archivo debe ser un PDF.";
     return;
   }
-  originalFileName = file.name.replace(/\.pdf$/i, "");
-  fileInfo.textContent = "Leyendo " + file.name + "…";
-  originalBytes = await file.arrayBuffer();
 
-  try {
-    pdfjsDoc = await pdfjsLib.getDocument({ data: originalBytes.slice(0) }).promise;
-    const parsed = await parsePdf(pdfjsDoc);
-    labelsByNic = parsed.labelsByNic;
-    nicFirstSeenOrder = parsed.order;
-    renderDetected();
-    fileInfo.textContent = file.name + " — " + parsed.order.length + " etiqueta(s) distinta(s) en " + parsed.totalPages + " página(s).";
-    detectedCard.classList.remove("hidden");
-    orderCard.classList.remove("hidden");
-    generateCard.classList.remove("hidden");
-    scanCard.classList.remove("hidden");
-    nicOrder.value = nicFirstSeenOrder.join("\n");
-    updateSummary();
-    scanInput.value = "";
-    scanInput.disabled = false;
-    scanInput.focus();
-
-    pageCanvasCache = new Map();
-    const allPageIndices = [...new Set(nicFirstSeenOrder.flatMap((nic) => labelsByNic.get(nic).pages))];
-    prewarmPageCache(allPageIndices);
-  } catch (err) {
-    console.error(err);
-    fileInfo.textContent = "No se pudo leer el PDF: " + err.message;
+  const messages = [];
+  for (const file of files) {
+    fileInfo.textContent = "Leyendo " + file.name + "…";
+    try {
+      const { added, duplicates } = await addOnePdf(file);
+      messages.push(
+        file.name + ": " + added + " etiqueta(s)" +
+        (duplicates ? " (" + duplicates + " NIC repetido(s) de otro PDF ya cargado, se ignoraron)" : "")
+      );
+    } catch (err) {
+      console.error(err);
+      messages.push(file.name + ": no se pudo leer (" + err.message + ")");
+    }
   }
+  fileInfo.textContent = messages.join(" · ");
+
+  renderLoadedFiles();
+  renderDetected();
+  detectedCard.classList.remove("hidden");
+  orderCard.classList.remove("hidden");
+  generateCard.classList.remove("hidden");
+  scanCard.classList.remove("hidden");
+  nicOrder.value = nicFirstSeenOrder.join("\n");
+  updateSummary();
+  scanInput.value = "";
+  scanInput.disabled = false;
+  scanInput.focus();
+
+  // Prewarm every label page not already cached (keeps whatever earlier
+  // files already warmed up, and only renders what's new).
+  const toPrewarm = [];
+  const seen = new Set();
+  for (const nic of nicFirstSeenOrder) {
+    for (const p of labelsByNic.get(nic).pages) {
+      const key = p.docId + ":" + p.pageIndex;
+      if (!seen.has(key) && !pageCanvasCache.has(key)) { seen.add(key); toPrewarm.push(p); }
+    }
+  }
+  prewarmPageCache(toPrewarm);
+}
+
+// Parses one PDF file and merges its labels into the shared index. A NIC
+// that's already present (from a previously loaded file) is left as-is —
+// the earlier copy wins — and counted as a duplicate.
+async function addOnePdf(file) {
+  const bytes = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  const docId = nextDocId++;
+  const parsed = await parsePdf(doc);
+
+  let added = 0, duplicates = 0;
+  for (const nic of parsed.order) {
+    if (labelsByNic.has(nic)) { duplicates++; continue; }
+    const info = parsed.labelsByNic.get(nic);
+    labelsByNic.set(nic, {
+      pages: info.pages.map((pageIndex) => ({ docId, pageIndex })),
+      destino: info.destino,
+      sucursal: info.sucursal,
+      bultos: info.bultos,
+      fecha: info.fecha,
+      fileName: file.name,
+    });
+    nicFirstSeenOrder.push(nic);
+    added++;
+  }
+
+  loadedPdfs.set(docId, { fileName: file.name, bytes, pdfjsDoc: doc, totalPages: doc.numPages, labelCount: added, duplicateCount: duplicates });
+  return { added, duplicates };
+}
+
+function renderLoadedFiles() {
+  if (!loadedPdfs.size) {
+    loadedFilesList.innerHTML = "";
+    return;
+  }
+  let html = "<table><tbody>";
+  for (const [docId, info] of loadedPdfs) {
+    html +=
+      "<tr>" +
+      "<td>" + escapeHtml(info.fileName) + "</td>" +
+      "<td class='muted'>" + info.labelCount + " etiqueta(s)" +
+      (info.duplicateCount ? ", " + info.duplicateCount + " repetida(s) omitida(s)" : "") + "</td>" +
+      "<td><button class='btn-secondary remove-file-btn' data-docid='" + docId + "'>Quitar</button></td>" +
+      "</tr>";
+  }
+  html += "</tbody></table>";
+  if (loadedPdfs.size > 1) {
+    html += "<div class='row' style='margin-top:8px;'><button class='btn-secondary' id='clearAllFilesBtn'>Vaciar todo</button></div>";
+  }
+  loadedFilesList.innerHTML = html;
+}
+
+function removeFile(docId) {
+  loadedPdfs.delete(docId);
+  const nicsToRemove = nicFirstSeenOrder.filter((nic) => labelsByNic.get(nic).pages.some((p) => p.docId === docId));
+  for (const nic of nicsToRemove) labelsByNic.delete(nic);
+  const removeSet = new Set(nicsToRemove);
+  nicFirstSeenOrder = nicFirstSeenOrder.filter((nic) => !removeSet.has(nic));
+  for (const key of [...pageCanvasCache.keys()]) {
+    if (key.startsWith(docId + ":")) pageCanvasCache.delete(key);
+  }
+
+  if (!loadedPdfs.size) {
+    resetAll();
+    return;
+  }
+  renderLoadedFiles();
+  renderDetected();
+  nicOrder.value = nicFirstSeenOrder.join("\n");
+  updateSummary();
+}
+
+function clearAllFiles() {
+  loadedPdfs = new Map();
+  labelsByNic = new Map();
+  nicFirstSeenOrder = [];
+  pageCanvasCache = new Map();
+  prewarmToken++; // cancel any in-flight prewarm
+  resetAll();
+}
+
+function resetAll() {
+  renderLoadedFiles();
+  renderDetected();
+  nicOrder.value = "";
+  updateSummary();
+  fileInfo.textContent = "Ningún archivo cargado todavía.";
+  detectedCard.classList.add("hidden");
+  orderCard.classList.add("hidden");
+  generateCard.classList.add("hidden");
+  scanCard.classList.add("hidden");
+  scanLogBody.innerHTML = "";
+  scanMsg.innerHTML = "";
+  prewarmStatus.textContent = "";
 }
 
 async function parsePdf(doc) {
@@ -491,7 +609,8 @@ function renderDetected() {
       "<td>" + escapeHtml(info.sucursal || "-") + "</td>" +
       "<td>" + escapeHtml(info.bultos || "-") + "</td>" +
       "<td class='muted'>" + escapeHtml(info.fecha || "-") + "</td>" +
-      "<td>" + info.pages.length + "</td>";
+      "<td>" + info.pages.length + "</td>" +
+      "<td class='muted'>" + escapeHtml(info.fileName || "-") + "</td>";
     detectedBody.appendChild(tr);
   }
   detectedCount.textContent = "(" + nicFirstSeenOrder.length + ")";
@@ -545,7 +664,7 @@ function updateSummary() {
     ? found.length + " etiqueta(s) a imprimir, " + totalPages + " página(s) en total."
     : "Escribí al menos un NIC válido para generar el PDF.";
 
-  generateBtn.disabled = found.length === 0 || !originalBytes;
+  generateBtn.disabled = found.length === 0 || loadedPdfs.size === 0;
 }
 
 // Applies a copies override to one label's page list: trims to `override` pages,
@@ -557,11 +676,18 @@ function applyCopiesOverride(pages, override) {
   return pages.concat(extra);
 }
 
-async function buildPdfBytesForPages(pageIndices) {
-  const srcDoc = await PDFDocument.load(originalBytes.slice(0));
+// Copies the given pages (each { docId, pageIndex }) into one new PDF, in
+// order, pulling from whichever source document each page belongs to.
+async function buildPdfBytesForPages(pages) {
   const outDoc = await PDFDocument.create();
-  const copied = await outDoc.copyPages(srcDoc, pageIndices);
-  for (const p of copied) outDoc.addPage(p);
+  const srcDocCache = new Map(); // docId -> pdf-lib PDFDocument
+  for (const { docId, pageIndex } of pages) {
+    if (!srcDocCache.has(docId)) {
+      srcDocCache.set(docId, await PDFDocument.load(loadedPdfs.get(docId).bytes.slice(0)));
+    }
+    const [copiedPage] = await outDoc.copyPages(srcDocCache.get(docId), [pageIndex]);
+    outDoc.addPage(copiedPage);
+  }
   return outDoc.save();
 }
 
@@ -569,25 +695,25 @@ generateBtn.addEventListener("click", async () => {
   generateMsg.innerHTML = "";
   const requested = parseNicList(nicOrder.value);
   const found = requested.filter((nic) => labelsByNic.has(nic));
-  if (!found.length || !originalBytes) return;
+  if (!found.length || !loadedPdfs.size) return;
 
   generateBtn.disabled = true;
   generateBtn.textContent = "Generando…";
 
   try {
     const override = getCopiesOverride();
-    const pageIndicesToCopy = [];
+    const pagesToCopy = [];
     for (const nic of found) {
-      pageIndicesToCopy.push(...applyCopiesOverride(labelsByNic.get(nic).pages, override));
+      pagesToCopy.push(...applyCopiesOverride(labelsByNic.get(nic).pages, override));
     }
 
-    const outBytes = await buildPdfBytesForPages(pageIndicesToCopy);
+    const outBytes = await buildPdfBytesForPages(pagesToCopy);
     const blob = new Blob([outBytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = originalFileName + "_ordenado.pdf";
+    a.download = "etiquetas_ordenadas_" + new Date().toISOString().slice(0, 10) + ".pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -595,7 +721,7 @@ generateBtn.addEventListener("click", async () => {
     // Also open a tab for quick print preview.
     window.open(url, "_blank");
 
-    generateMsg.innerHTML = "<div class='msg ok'>PDF generado con " + pageIndicesToCopy.length + " página(s). Se descargó y se abrió en una pestaña nueva para imprimir.</div>";
+    generateMsg.innerHTML = "<div class='msg ok'>PDF generado con " + pagesToCopy.length + " página(s). Se descargó y se abrió en una pestaña nueva para imprimir.</div>";
   } catch (err) {
     console.error(err);
     generateMsg.innerHTML = "<div class='msg err'>Error al generar el PDF: " + escapeHtml(err.message) + "</div>";
@@ -629,8 +755,9 @@ function beep(freq, duration) {
 // Renders one PDF page to an offscreen canvas at print resolution, and returns
 // its physical size in inches (from the unscaled viewport) so the printed
 // output matches the original label size exactly.
-async function renderPageToCanvas(pageIndex, scale) {
-  const page = await pdfjsDoc.getPage(pageIndex + 1); // pdf.js pages are 1-based
+async function renderPageToCanvas(docId, pageIndex, scale) {
+  const doc = loadedPdfs.get(docId).pdfjsDoc;
+  const page = await doc.getPage(pageIndex + 1); // pdf.js pages are 1-based
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
@@ -644,27 +771,28 @@ async function renderPageToCanvas(pageIndex, scale) {
 // Returns the pre-rendered canvas for a page, rendering (and caching) it on
 // the spot if it isn't ready yet — e.g. a scan comes in before the
 // background prewarm gets to that page.
-async function getPageCanvas(pageIndex) {
-  if (!pageCanvasCache.has(pageIndex)) {
-    const promise = renderPageToCanvas(pageIndex, PRINT_SCALE);
-    promise.catch(() => pageCanvasCache.delete(pageIndex)); // let a later call retry instead of failing forever
-    pageCanvasCache.set(pageIndex, promise);
+async function getPageCanvas(docId, pageIndex) {
+  const key = docId + ":" + pageIndex;
+  if (!pageCanvasCache.has(key)) {
+    const promise = renderPageToCanvas(docId, pageIndex, PRINT_SCALE);
+    promise.catch(() => pageCanvasCache.delete(key)); // let a later call retry instead of failing forever
+    pageCanvasCache.set(key, promise);
   }
-  return pageCanvasCache.get(pageIndex);
+  return pageCanvasCache.get(key);
 }
 
-// Renders every label page in the background right after a PDF loads, so
+// Renders every label page in the background right after PDF(s) load, so
 // each scan afterwards only has to look up an already-drawn canvas instead
 // of rasterizing the page from scratch. Yields between pages to keep the UI
 // (and the scan input) responsive while it runs.
-async function prewarmPageCache(pageIndices) {
+async function prewarmPageCache(pages) {
   const myToken = ++prewarmToken;
   let done = 0;
-  for (const pageIndex of pageIndices) {
-    if (myToken !== prewarmToken) return; // a newer PDF was loaded meanwhile
-    await getPageCanvas(pageIndex);
+  for (const { docId, pageIndex } of pages) {
+    if (myToken !== prewarmToken) return; // the loaded files changed meanwhile
+    await getPageCanvas(docId, pageIndex);
     done++;
-    prewarmStatus.textContent = "Preparando etiquetas para impresión rápida… " + done + "/" + pageIndices.length;
+    prewarmStatus.textContent = "Preparando etiquetas para impresión rápida… " + done + "/" + pages.length;
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   if (myToken === prewarmToken) prewarmStatus.textContent = "";
@@ -699,17 +827,19 @@ async function printCanvasesDirectly(canvases, widthIn, heightIn) {
   window.print();
 }
 
-async function printPagesDirectly(pageIndices) {
+async function printPagesDirectly(pages) {
   const canvases = [];
   const alreadyUsed = new Set();
   let widthIn = 4, heightIn = 4;
-  for (let i = 0; i < pageIndices.length; i++) {
-    const rendered = await getPageCanvas(pageIndices[i]);
+  for (let i = 0; i < pages.length; i++) {
+    const { docId, pageIndex } = pages[i];
+    const key = docId + ":" + pageIndex;
+    const rendered = await getPageCanvas(docId, pageIndex);
     if (i === 0) { widthIn = rendered.widthIn; heightIn = rendered.heightIn; }
     // The first use of a given page can print straight from the cached
     // canvas; a repeat (e.g. a second copy of the same label) needs its own copy.
-    canvases.push(alreadyUsed.has(pageIndices[i]) ? cloneCanvas(rendered.canvas) : rendered.canvas);
-    alreadyUsed.add(pageIndices[i]);
+    canvases.push(alreadyUsed.has(key) ? cloneCanvas(rendered.canvas) : rendered.canvas);
+    alreadyUsed.add(key);
   }
   await printCanvasesDirectly(canvases, widthIn, heightIn);
 }
