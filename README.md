@@ -3,17 +3,41 @@
 Aplicación web simple para tomar el PDF de "Etiquetas de Viaje" (como los que
 genera Transportes Unión, con formato `Etiquetas_Viaje_JUR_###_AAAAMMDD.pdf`)
 y armar un PDF nuevo con las etiquetas en el orden de NIC (Número de
-Seguimiento) que vos indiques, listo para imprimir.
+Seguimiento) que vos indiques, listo para imprimir. También permite
+escanear el código de barras de cada bulto e imprimir esa etiqueta al
+instante, una por una.
 
-No requiere instalación ni conexión a internet: es un único archivo HTML que
-corre 100% en el navegador. El PDF nunca se sube a ningún servidor.
+Es un único archivo (`index.html`) que corre 100% en el navegador — no
+necesita instalación, ni conexión a internet, ni servidor. El PDF nunca se
+sube a ningún lado.
+
+## Instalación (Windows, recomendado — un solo ícono)
+
+1. Descomprimí el ZIP en cualquier carpeta.
+2. Ejecutá **`Instalar.bat`** (doble clic) una sola vez.
+   - Copia la app a una carpeta fija en tu usuario.
+   - Te deja un ícono **"Etiquetas NIC"** en el escritorio.
+   - Si no tenés Google Chrome instalado, te avisa y no continúa — instalalo
+     desde https://www.google.com/chrome/ y volvé a ejecutar `Instalar.bat`.
+3. Después de instalarlo, ya podés borrar la carpeta del ZIP si querés — la
+   app quedó copiada aparte. De ahora en más, **usá siempre el ícono
+   "Etiquetas NIC" del escritorio** para abrir la app: abre directo en modo
+   automático, sin cartel de impresión al escanear (ver más abajo).
+
+Antes de escanear en serio, andá a la pestaña **Configuración** de la app y
+usá **"Imprimir etiqueta de prueba"** para confirmar que la impresora
+predeterminada y el tamaño de etiqueta están bien.
+
+### Alternativa sin instalar nada
+
+Si preferís no correr el instalador, `index.html` funciona igual con doble
+clic directo (o sirviéndolo con cualquier servidor estático). En ese caso,
+al escanear se va a abrir el diálogo de impresión normal de Windows en vez
+de imprimir sola — confirmás con Enter o un clic en "Imprimir".
 
 ## Cómo usarla
 
-1. Abrí `index.html` con doble clic (o servilo con cualquier servidor
-   estático, por ejemplo `python3 -m http.server` y entrá a
-   `http://localhost:8000`).
-2. Cargá uno o más PDF de etiquetas (arrastrándolos juntos, o eligiendo
+1. Cargá uno o más PDF de etiquetas (arrastrándolos juntos, o eligiendo
    varios en el diálogo de archivos). También podés ir agregando más PDF
    después, sin perder los que ya cargaste — por ejemplo, para juntar en una
    misma sesión de escaneo los listados de viaje de varios días. Cada
@@ -24,19 +48,18 @@ corre 100% en el navegador. El PDF nunca se sube a ningún servidor.
    archivo salió cada una en una sola tabla. Si el mismo NIC aparece en más
    de un PDF, se queda con la primera copia cargada y avisa cuántas
    repeticiones ignoró.
-3. En el cuadro de texto escribí o pegá los NIC en el orden en que querés
+2. En el cuadro de texto escribí o pegá los NIC en el orden en que querés
    imprimirlos (uno por línea, o separados por coma/espacio). El botón
    "Usar todos, en el orden del PDF" precarga la lista completa tal cual
-   viene en el archivo original.
+   viene en los archivos cargados.
    - Si repetís un NIC, esa etiqueta se imprime más de una vez (útil para
      reimprimir una etiqueta perdida o dañada).
-   - Si escribís un NIC que no está en el PDF cargado, la app lo marca como
-     "no encontrado" y no lo incluye en el PDF final.
-4. Elegí cuántas copias de cada etiqueta querés (por defecto, la misma
+   - Si escribís un NIC que no está en ningún PDF cargado, la app lo marca
+     como "no encontrado" y no lo incluye en el PDF final.
+3. Elegí cuántas copias de cada etiqueta querés (por defecto, la misma
    cantidad que trae el PDF original — normalmente 2 por envío).
-5. Hacé clic en "Generar PDF ordenado". Se descarga automáticamente el
-   archivo `<nombre-original>_ordenado.pdf` y se abre en una pestaña nueva
-   para imprimir directamente.
+4. Hacé clic en "Generar PDF ordenado". Se descarga automáticamente el PDF
+   y se abre en una pestaña nueva para imprimir directamente.
 
 ## Escaneo rápido (imprimir de a una etiqueta con un lector de código de barras)
 
@@ -44,7 +67,7 @@ Además del modo por lote de arriba, la sección **"5. Escaneo rápido"**
 permite imprimir una sola etiqueta por vez a medida que vas escaneando el NIC
 de cada bulto físico:
 
-1. Apenas cargás el PDF, la app empieza a preparar en segundo plano el
+1. Apenas cargás el/los PDF, la app empieza a preparar en segundo plano el
    dibujo de cada etiqueta (se ve un cartel "Preparando etiquetas para
    impresión rápida… X/Y" debajo del recuadro de escaneo). Conviene esperar
    a que termine antes de arrancar a escanear fuerte, así cada etiqueta sale
@@ -57,12 +80,12 @@ de cada bulto físico:
    apretá Enter. Un lector de código de barras común (USB o Bluetooth,
    tipo "pistola") funciona como si fuera un teclado: escribe el número y
    Enter solo, así que no hace falta nada especial de configuración.
-4. La app manda esa etiqueta a imprimir al instante. Si estás usando
-   `Abrir en modo automatico.bat`, sale directo sin ningún cartel; si
-   abriste `index.html` normal, se abre el diálogo de impresión de Windows
-   y confirmás con Enter o un clic en "Imprimir".
-5. Si el NIC no está en el PDF cargado, la app avisa en rojo y hace un sonido
-   distinto, sin mandar nada a imprimir.
+4. La app manda esa etiqueta a imprimir al instante. Si abriste la app con
+   el ícono "Etiquetas NIC" (instalado con `Instalar.bat`), sale directo sin
+   ningún cartel; si abriste `index.html` normal, se abre el diálogo de
+   impresión de Windows y confirmás con Enter o un clic en "Imprimir".
+5. Si el NIC no está en ningún PDF cargado, la app avisa en rojo y hace un
+   sonido distinto, sin mandar nada a imprimir.
 6. Cada escaneo queda anotado en la tabla de abajo (hora, NIC, destino,
    estado), con un botón **"Reimprimir"** por si una etiqueta se atascó o
    salió mal.
@@ -70,43 +93,36 @@ de cada bulto físico:
 Por defecto imprime 1 copia por escaneo; podés cambiarlo con el selector
 "Copias por escaneo" arriba del recuadro.
 
-**Antes de usarlo la primera vez en una PC:**
+## Configuración de la impresora
 
-- Configurá la impresora de etiquetas (Zebra) como **impresora
-  predeterminada** de Windows, así el diálogo de impresión ya viene con
-  ella seleccionada.
-- La primera vez que imprimas, revisá que el diálogo tenga el tamaño de
-  papel/etiqueta correcto y la escala en **"Tamaño real" / "100%"** (no
-  "Ajustar a la página"), y guardá esa configuración — el navegador la
-  recuerda para las próximas impresiones.
+Todo esto está también explicado, paso a paso, dentro de la pestaña
+**Configuración** de la app:
 
-### Modo 100% automático (sin tocar nada al escanear)
+- Poné la impresora Zebra como **predeterminada** en Windows (Configuración
+  → Impresoras y escáneres → elegirla → "Establecer como predeterminada"; si
+  aparece "Dejar que Windows administre mi impresora predeterminada",
+  apagalo para que no la cambie sola).
+- Revisá en las preferencias de la impresora que el tamaño de papel/etiqueta
+  configurado sea el de tu rollo (10x10cm / 4x4in aprox.).
+- Usá el botón **"Imprimir etiqueta de prueba"** (pestaña Configuración)
+  para confirmar que todo el circuito funciona antes de escanear en serio.
 
-Si querés que ni siquiera haya que confirmar el diálogo de impresión, usá el
-archivo **`Abrir en modo automatico.bat`** que está en esta misma carpeta:
-
-1. Primero, poné la impresora Zebra como **predeterminada** en Windows
-   (Configuración → Impresoras y escáneres → elegirla → "Establecer como
-   predeterminada"; si aparece "Dejar que Windows administre mi impresora
-   predeterminada", apagalo para que no la cambie sola).
-2. De ahora en más, abrí la app haciendo **doble clic en
-   `Abrir en modo automatico.bat`** en vez de en `index.html`. Se abre
-   Chrome en modo silencioso: cada etiqueta que la app mande a imprimir sale
-   directo a la impresora predeterminada, sin ningún diálogo ni clic.
-3. El `.bat` busca Chrome solo (no hace falta editar rutas a mano) y lo abre
-   con un perfil separado, así funciona aunque ya tengas otra ventana de
-   Chrome normal abierta.
-
-Usalo solo en la PC fija que esté al lado de la impresora, ya que en ese modo
-cualquier cosa que la página mande a imprimir sale directo, sin
-confirmación.
+Usá el ícono/modo automático solo en la PC fija que esté al lado de la
+impresora: en ese modo, cualquier cosa que la página mande a imprimir sale
+directo a la impresora predeterminada, sin ningún diálogo de confirmación.
 
 ## Estructura
 
-- `index.html` — la aplicación completa (HTML + CSS + JS).
-- `vendor/` — copias locales de [pdf.js](https://mozilla.github.io/pdf.js/)
-  (lectura del PDF de origen) y [pdf-lib](https://pdf-lib.js.org/) (armado
-  del PDF de salida), para que la app funcione sin depender de una CDN.
+- `index.html` — la aplicación completa (HTML + CSS + JS), incluidas las
+  copias de [pdf.js](https://mozilla.github.io/pdf.js/) (lectura de los PDF
+  de origen) y [pdf-lib](https://pdf-lib.js.org/) (armado del PDF de
+  salida) ya insertadas adentro del mismo archivo — no depende de ninguna
+  carpeta aparte ni de una CDN, así que es un solo archivo totalmente
+  portable.
+- `Instalar.bat` — instalador de un solo uso para Windows: copia la app a
+  `%LocalAppData%\EtiquetasNIC` y crea el ícono "Etiquetas NIC" en el
+  escritorio, apuntando a Chrome en modo de impresión silenciosa.
+- `nic.ico` — el ícono que usa ese acceso directo.
 
 ## Cómo identifica cada etiqueta
 
